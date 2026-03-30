@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: deploy-group
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.3.1
       - uses: superfly/flyctl-actions/setup-flyctl@1.5
       - run: flyctl deploy --remote-only
         env:

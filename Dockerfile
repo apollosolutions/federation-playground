@@ -24,6 +24,9 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/backend/dist ./backend/dist
 COPY --from=builder /app/backend/public ./backend/public
 
+RUN chown -R node:node /app
+USER node
+
 WORKDIR /app/backend
 ENV PORT=3000
 EXPOSE 3000
