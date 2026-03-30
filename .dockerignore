@@ -1,0 +1,10 @@
+node_modules
+backend/dist
+backend/public
+.git
+.github
+*.md
+.editorconfig
+docs
+.env*
+tests
