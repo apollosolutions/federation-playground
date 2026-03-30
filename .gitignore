@@ -5,6 +5,9 @@
 # dependencies
 node_modules
 
+# Vite cache (frontend)
+.vite/
+
 # production frontend bundle (copied by Vite into backend)
 backend/public
 
