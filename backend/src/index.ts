@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import composeRouter from "./routes/compose.js";
+import federationVersionsRouter from "./routes/federationVersions.js";
 import queryPlanRouter from "./routes/queryPlan.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 app.use("/api/compose", composeRouter);
+app.use("/api/federation-versions", federationVersionsRouter);
 app.use("/api/query-plan", queryPlanRouter);
 
 const staticDir = path.join(__dirname, "..", "public");

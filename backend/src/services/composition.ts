@@ -1,6 +1,5 @@
-import { composeServices } from "@apollo/composition";
-import { GraphQLError } from "graphql";
 import { parse } from "graphql";
+import type { ComposeServicesFn } from "./compositionManager.js";
 
 export type SubgraphInput = {
     name: string;
@@ -15,12 +14,23 @@ export type SerializedGraphQLError = {
     extensions?: Record<string, unknown>;
 };
 
-function serializeError(err: GraphQLError): SerializedGraphQLError {
+function serializeError(err: unknown): SerializedGraphQLError {
+    if (typeof err !== "object" || err === null) {
+        return { message: String(err) };
+    }
+    const e = err as Record<string, unknown>;
     return {
-        message: err.message,
-        locations: err.locations,
-        path: err.path as ReadonlyArray<string | number> | undefined,
-        extensions: err.extensions as Record<string, unknown> | undefined,
+        message: typeof e.message === "string" ? e.message : String(err),
+        locations: Array.isArray(e.locations)
+            ? (e.locations as ReadonlyArray<{ line: number; column: number }>)
+            : undefined,
+        path: Array.isArray(e.path)
+            ? (e.path as ReadonlyArray<string | number>)
+            : undefined,
+        extensions:
+            typeof e.extensions === "object" && e.extensions !== null
+                ? (e.extensions as Record<string, unknown>)
+                : undefined,
     };
 }
 
@@ -42,7 +52,10 @@ export type ComposeFailure = {
 
 export type ComposeResult = ComposeSuccess | ComposeFailure;
 
-export function composeSubgraphs(subgraphs: SubgraphInput[]): ComposeResult {
+export async function composeSubgraphs(
+    subgraphs: SubgraphInput[],
+    composeServicesFn: ComposeServicesFn,
+): Promise<ComposeResult> {
     try {
         const services = subgraphs.map((sg) => ({
             name: sg.name,
@@ -50,21 +63,25 @@ export function composeSubgraphs(subgraphs: SubgraphInput[]): ComposeResult {
             url: sg.url,
         }));
 
-        const result = composeServices(services);
+        const result = composeServicesFn(services);
 
         if (result.errors) {
             return {
                 success: false,
-                errors: result.errors.map((e) =>
-                    e instanceof GraphQLError ? serializeError(e) : { message: String(e) },
-                ),
+                errors: result.errors.map((e) => serializeError(e)),
             };
         }
+
+        const hints = (result.hints ?? []) as Array<{
+            message: string;
+            definition: { code: string; level: { name: string } };
+            coordinate?: string;
+        }>;
 
         return {
             success: true,
             supergraphSdl: result.supergraphSdl,
-            hints: (result.hints ?? []).map((h) => ({
+            hints: hints.map((h) => ({
                 message: h.message,
                 code: h.definition.code,
                 level: h.definition.level.name,

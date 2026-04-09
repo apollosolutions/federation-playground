@@ -5,6 +5,9 @@
 # dependencies
 node_modules
 
+# cached composition versions (downloaded on demand)
+.cache/
+
 # Vite cache (frontend)
 .vite/
 

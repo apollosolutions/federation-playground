@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { compose, queryPlan } from "@/api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { compose, fetchFederationVersions, queryPlan } from "@/api/client";
 import type {
     ComposeApiFailure,
     ComposeApiSuccess,
@@ -12,6 +12,7 @@ import {
     DEFAULT_FEDERATION_VERSION,
     DEFAULT_OPERATION,
 } from "@/utils/defaultSchemas";
+import { isValidFederationVersion } from "@/utils/federationVersions";
 import { buildExportPayload, downloadJson, parseImportPayload } from "@/utils/importExport";
 
 function initialPlayground() {
@@ -41,6 +42,22 @@ export function usePlaygroundState() {
 
     const [composeLoading, setComposeLoading] = useState(false);
     const [planLoading, setPlanLoading] = useState(false);
+
+    const [availableVersions, setAvailableVersions] = useState<string[]>([]);
+
+    useEffect(() => {
+        fetchFederationVersions()
+            .then(setAvailableVersions)
+            .catch(() => {
+                /* graceful degradation: skip validation when npm is unreachable */
+            });
+    }, []);
+
+    const federationVersionError: string | null = useMemo(() => {
+        if (availableVersions.length === 0) return null;
+        if (isValidFederationVersion(federationVersion, availableVersions)) return null;
+        return "Unknown federation version — not found on npm";
+    }, [federationVersion, availableVersions]);
 
     const updateSubgraph = useCallback(
         (id: string, patch: Partial<Omit<SubgraphState, "id">>) => {
@@ -159,6 +176,7 @@ export function usePlaygroundState() {
 
     return {
         federationVersion,
+        federationVersionError,
         setFederationVersion,
         subgraphs,
         activeSubgraphId,

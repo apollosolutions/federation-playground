@@ -30,6 +30,12 @@ export async function compose(
     return parseJson<ComposeApiSuccess | ComposeApiFailure>(res);
 }
 
+export async function fetchFederationVersions(): Promise<string[]> {
+    const res = await fetch("/api/federation-versions");
+    const data = await parseJson<{ versions: string[] }>(res);
+    return data.versions;
+}
+
 export type QueryPlanRequestBody = {
     supergraphSdl: string;
     operation: string;

@@ -11,7 +11,7 @@ export const DEFAULT_FEDERATION_VERSION = "=2.13.3";
  * Datalist suggestions only (examples of Rover-style values). The toolbar field
  * accepts any string (e.g. `=2.14.1`); you do not need to update this list for new releases.
  */
-export const FEDERATION_VERSION_SUGGESTIONS = ["=2.13.3", "2", "1"] as const;
+export const FEDERATION_VERSION_SUGGESTIONS = ["=2.13.3", "2"] as const;
 
 export const DEFAULT_PRODUCTS_SCHEMA = `extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
 

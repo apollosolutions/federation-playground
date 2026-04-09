@@ -51,6 +51,7 @@ export default function App() {
             />
             <Toolbar
                 federationVersion={pg.federationVersion}
+                federationVersionError={pg.federationVersionError}
                 onFederationVersionChange={pg.setFederationVersion}
                 onCompose={async () => {
                     setOutputTab("supergraph");

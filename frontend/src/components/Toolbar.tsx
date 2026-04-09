@@ -2,6 +2,7 @@ import { FEDERATION_VERSION_SUGGESTIONS } from "@/utils/defaultSchemas";
 
 export type ToolbarProps = {
     federationVersion: string;
+    federationVersionError: string | null;
     onFederationVersionChange: (v: string) => void;
     onCompose: () => void;
     onPlan: () => void;
@@ -13,6 +14,7 @@ export type ToolbarProps = {
 
 export function Toolbar({
     federationVersion,
+    federationVersionError,
     onFederationVersionChange,
     onCompose,
     onPlan,
@@ -29,17 +31,28 @@ export function Toolbar({
             <div className="ml-auto flex flex-wrap items-center gap-2">
                 <label className="flex min-w-0 max-w-[14rem] flex-col gap-1 text-xs text-gray-400 sm:max-w-none sm:flex-row sm:items-center">
                     <span className="shrink-0">Federation version</span>
-                    <input
-                        type="text"
-                        className="min-w-0 rounded border border-surface-border bg-surface px-2 py-1 font-mono text-gray-100 sm:w-36"
-                        value={federationVersion}
-                        onChange={(e) => onFederationVersionChange(e.target.value)}
-                        list="federation-version-suggestions"
-                        placeholder="=2.13.3 or 2"
-                        title="Any Rover-style value (e.g. =2.14.1, 2, 1). Stored in exports; composition uses @apollo/composition from the server package.json."
-                        spellCheck={false}
-                        autoComplete="off"
-                    />
+                    <span className="relative">
+                        <input
+                            type="text"
+                            className={`min-w-0 rounded border bg-surface px-2 py-1 font-mono text-gray-100 sm:w-36 ${
+                                federationVersionError
+                                    ? "border-red-500"
+                                    : "border-surface-border"
+                            }`}
+                            value={federationVersion}
+                            onChange={(e) => onFederationVersionChange(e.target.value)}
+                            list="federation-version-suggestions"
+                            placeholder="=2.13.3 or 2"
+                            title="Any Rover-style value (e.g. =2.14.1, 2, 1). Stored in exports; composition uses @apollo/composition from the server package.json."
+                            spellCheck={false}
+                            autoComplete="off"
+                        />
+                        {federationVersionError && (
+                            <span className="absolute left-0 top-full mt-1 whitespace-nowrap text-xs text-red-400">
+                                {federationVersionError}
+                            </span>
+                        )}
+                    </span>
                     <datalist id="federation-version-suggestions">
                         {FEDERATION_VERSION_SUGGESTIONS.map((v) => (
                             <option key={v} value={v} />
