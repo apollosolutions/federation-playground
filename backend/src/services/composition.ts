@@ -1,56 +1,47 @@
 import { parse } from "graphql";
 import type { ComposeServicesFn } from "./compositionManager.js";
+import type {
+    ComposeFailure,
+    ComposeResult,
+    ComposeSuccess,
+    SerializedGraphQLError,
+    SubgraphInput,
+} from "../types.js";
 
-export type SubgraphInput = {
-    name: string;
-    url: string;
-    schema: string;
-};
+export type { SubgraphInput, ComposeResult, ComposeSuccess, ComposeFailure };
 
-export type SerializedGraphQLError = {
-    message: string;
-    locations?: ReadonlyArray<{ line: number; column: number }>;
-    path?: ReadonlyArray<string | number>;
-    extensions?: Record<string, unknown>;
-};
+const DOCS_BASE =
+    "https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/errors";
+
+function errorDocsUrl(code: string): string {
+    return `${DOCS_BASE}#${code.toLowerCase().replace(/_/g, "_")}`;
+}
 
 function serializeError(err: unknown): SerializedGraphQLError {
     if (typeof err !== "object" || err === null) {
         return { message: String(err) };
     }
     const e = err as Record<string, unknown>;
+    const extensions =
+        typeof e.extensions === "object" && e.extensions !== null
+            ? (e.extensions as Record<string, unknown>)
+            : undefined;
+
+    const code =
+        typeof extensions?.code === "string" ? extensions.code : undefined;
+
     return {
         message: typeof e.message === "string" ? e.message : String(err),
+        ...(code ? { code, docsUrl: errorDocsUrl(code) } : {}),
         locations: Array.isArray(e.locations)
             ? (e.locations as ReadonlyArray<{ line: number; column: number }>)
             : undefined,
         path: Array.isArray(e.path)
             ? (e.path as ReadonlyArray<string | number>)
             : undefined,
-        extensions:
-            typeof e.extensions === "object" && e.extensions !== null
-                ? (e.extensions as Record<string, unknown>)
-                : undefined,
+        extensions,
     };
 }
-
-export type ComposeSuccess = {
-    success: true;
-    supergraphSdl: string;
-    hints: Array<{
-        message: string;
-        code: string;
-        level?: string;
-        coordinate?: string;
-    }>;
-};
-
-export type ComposeFailure = {
-    success: false;
-    errors: SerializedGraphQLError[];
-};
-
-export type ComposeResult = ComposeSuccess | ComposeFailure;
 
 export async function composeSubgraphs(
     subgraphs: SubgraphInput[],
@@ -69,7 +60,7 @@ export async function composeSubgraphs(
             return {
                 success: false,
                 errors: result.errors.map((e) => serializeError(e)),
-            };
+            } satisfies ComposeFailure;
         }
 
         const hints = (result.hints ?? []) as Array<{
@@ -84,15 +75,16 @@ export async function composeSubgraphs(
             hints: hints.map((h) => ({
                 message: h.message,
                 code: h.definition.code,
+                docsUrl: errorDocsUrl(h.definition.code),
                 level: h.definition.level.name,
                 coordinate: h.coordinate,
             })),
-        };
+        } satisfies ComposeSuccess;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {
             success: false,
             errors: [{ message }],
-        };
+        } satisfies ComposeFailure;
     }
 }

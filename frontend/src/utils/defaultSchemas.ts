@@ -5,15 +5,15 @@ function id(): string {
 }
 
 /** Default shown on first load; change anytime in the toolbar. */
-export const DEFAULT_FEDERATION_VERSION = "=2.13.3";
+export const DEFAULT_FEDERATION_VERSION = "2.13.3";
 
 /**
- * Datalist suggestions only (examples of Rover-style values). The toolbar field
- * accepts any string (e.g. `=2.14.1`); you do not need to update this list for new releases.
+ * Datalist suggestions shown in the toolbar dropdown.
+ * Users type bare semver (e.g. "2.13.3") or "2" for latest.
  */
-export const FEDERATION_VERSION_SUGGESTIONS = ["=2.13.3", "2"] as const;
+export const FEDERATION_VERSION_SUGGESTIONS = ["2.13.3", "2"] as const;
 
-export const DEFAULT_PRODUCTS_SCHEMA = `extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+export const DEFAULT_PRODUCTS_SCHEMA = `extend schema @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
 
 type Query {
   products: [Product!]!
@@ -26,7 +26,7 @@ type Product @key(fields: "id") {
 }
 `;
 
-export const DEFAULT_REVIEWS_SCHEMA = `extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+export const DEFAULT_REVIEWS_SCHEMA = `extend schema @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key", "@external"])
 
 type Query {
   reviews: [Review!]!

@@ -1,3 +1,4 @@
+import { BookOpen, Download, GitMerge, Network, Upload } from "lucide-react";
 import { FEDERATION_VERSION_SUGGESTIONS } from "@/utils/defaultSchemas";
 
 export type ToolbarProps = {
@@ -42,8 +43,8 @@ export function Toolbar({
                             value={federationVersion}
                             onChange={(e) => onFederationVersionChange(e.target.value)}
                             list="federation-version-suggestions"
-                            placeholder="=2.13.3 or 2"
-                            title="Any Rover-style value (e.g. =2.14.1, 2, 1). Stored in exports; composition uses @apollo/composition from the server package.json."
+                            placeholder="2.13.3 or 2"
+                            title="Semver version (e.g. 2.13.3) or '2' for latest stable 2.x. Stored in exports."
                             spellCheck={false}
                             autoComplete="off"
                         />
@@ -61,34 +62,47 @@ export function Toolbar({
                 </label>
                 <button
                     type="button"
-                    className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
                     onClick={onCompose}
                     disabled={composeLoading}
                 >
+                    <GitMerge size={13} />
                     {composeLoading ? "Composing…" : "Compose"}
                 </button>
                 <button
                     type="button"
-                    className="rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-100 hover:bg-surface-raised disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-50"
                     onClick={onPlan}
                     disabled={planLoading}
                 >
+                    <Network size={13} />
                     {planLoading ? "Planning…" : "Query plan"}
                 </button>
                 <button
                     type="button"
-                    className="rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-100 hover:bg-surface-raised"
+                    className="flex items-center gap-1.5 rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-100 hover:bg-surface-raised"
                     onClick={onImportClick}
                 >
+                    <Upload size={13} />
                     Import
                 </button>
                 <button
                     type="button"
-                    className="rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-100 hover:bg-surface-raised"
+                    className="flex items-center gap-1.5 rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-100 hover:bg-surface-raised"
                     onClick={onExport}
                 >
+                    <Download size={13} />
                     Export
                 </button>
+                <a
+                    href="/api/docs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded border border-surface-border bg-surface px-3 py-1.5 text-xs font-medium text-gray-400 hover:bg-surface-raised hover:text-gray-100"
+                >
+                    <BookOpen size={13} />
+                    API Docs
+                </a>
             </div>
         </header>
     );

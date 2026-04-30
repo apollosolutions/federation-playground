@@ -4,8 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import composeRouter from "./routes/compose.js";
+import composeAndPlanRouter from "./routes/composeAndPlan.js";
+import docsRouter from "./routes/docs.js";
 import federationVersionsRouter from "./routes/federationVersions.js";
+import importRouter from "./routes/import.js";
 import queryPlanRouter from "./routes/queryPlan.js";
+import { createMcpRouter } from "./mcp/sse.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,8 +20,12 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 app.use("/api/compose", composeRouter);
+app.use("/api/compose-and-plan", composeAndPlanRouter);
 app.use("/api/federation-versions", federationVersionsRouter);
+app.use("/api/import", importRouter);
 app.use("/api/query-plan", queryPlanRouter);
+app.use("/api", docsRouter);
+app.use("/mcp", createMcpRouter());
 
 const staticDir = path.join(__dirname, "..", "public");
 app.use(express.static(staticDir));

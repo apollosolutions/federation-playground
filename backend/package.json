@@ -3,23 +3,31 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
+    "bin": {
+        "federation-playground-mcp": "dist/mcp/stdio.js"
+    },
     "scripts": {
         "dev": "tsx watch src/index.ts",
-        "build": "tsc",
+        "build": "tsc && cp src/openapi.yaml dist/openapi.yaml",
         "start": "node dist/index.js",
-        "lint": "tsc --noEmit"
+        "lint": "tsc --noEmit",
+        "mcp:stdio": "node dist/mcp/stdio.js",
+        "mcp:stdio:dev": "tsx src/mcp/stdio.ts"
     },
     "dependencies": {
         "@apollo/composition": "^2.13.3",
         "@apollo/federation-internals": "^2.13.3",
         "@apollo/query-planner": "^2.13.3",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "cors": "^2.8.5",
         "express": "^4.21.2",
-        "graphql": "^16.10.0"
+        "graphql": "^16.10.0",
+        "js-yaml": "^4.1.1"
     },
     "devDependencies": {
         "@types/cors": "^2.8.17",
         "@types/express": "^4.17.21",
+        "@types/js-yaml": "^4.0.9",
         "@types/node": "^22.10.2",
         "tsx": "^4.19.2",
         "typescript": "^5.7.2"

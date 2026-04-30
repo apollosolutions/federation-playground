@@ -12,7 +12,11 @@ import {
     DEFAULT_FEDERATION_VERSION,
     DEFAULT_OPERATION,
 } from "@/utils/defaultSchemas";
-import { isValidFederationVersion } from "@/utils/federationVersions";
+import {
+    displayFederationVersion,
+    isValidFederationVersion,
+    normalizeFederationVersion,
+} from "@/utils/federationVersions";
 import { buildExportPayload, downloadJson, parseImportPayload } from "@/utils/importExport";
 
 function initialPlayground() {
@@ -74,7 +78,7 @@ export function usePlaygroundState() {
             id: crypto.randomUUID(),
             name,
             url: `http://${name}:4000/graphql`,
-            schema: `extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])\n\ntype Query {\n  _empty: String\n}\n`,
+            schema: `extend schema @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])\n\ntype Query {\n  _empty: String\n}\n`,
         };
         setSubgraphs((prev) => [...prev, newSg]);
         setActiveSubgraphId(newSg.id);
@@ -96,7 +100,7 @@ export function usePlaygroundState() {
         setQueryPlanResult(null);
         try {
             const result = await compose({
-                federationVersion,
+                federationVersion: normalizeFederationVersion(federationVersion),
                 subgraphs: subgraphs.map((s) => ({
                     name: s.name,
                     url: s.url,
@@ -151,7 +155,7 @@ export function usePlaygroundState() {
     }, [supergraphSdl, operation]);
 
     const exportState = useCallback(() => {
-        const data = buildExportPayload(federationVersion, subgraphs, operation);
+        const data = buildExportPayload(normalizeFederationVersion(federationVersion), subgraphs, operation);
         const stamp = new Date().toISOString().slice(0, 10);
         downloadJson(`federation-playground-export-${stamp}.json`, data);
     }, [federationVersion, subgraphs, operation]);
@@ -165,7 +169,7 @@ export function usePlaygroundState() {
         }
         const { federationVersion: fv, subgraphs: sgs, operation: op } =
             parseImportPayload(parsed);
-        setFederationVersion(fv);
+        setFederationVersion(displayFederationVersion(fv));
         setSubgraphs(sgs);
         setActiveSubgraphId(sgs[0]?.id ?? null);
         setOperation(op);

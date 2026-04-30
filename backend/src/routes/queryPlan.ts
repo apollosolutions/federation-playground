@@ -1,10 +1,12 @@
 import type { Request, Response } from "express";
 import { Router } from "express";
 import { generateQueryPlan } from "../services/queryPlanner.js";
+import { makeMetadata } from "../services/metadata.js";
 
 const router = Router();
 
 router.post("/", (req: Request, res: Response) => {
+    const startMs = performance.now();
     const body = req.body as {
         supergraphSdl?: string;
         operation?: string;
@@ -33,7 +35,10 @@ router.post("/", (req: Request, res: Response) => {
         body.operationName,
     );
 
-    res.status(result.success ? 200 : 422).json(result);
+    res.status(result.success ? 200 : 422).json({
+        ...result,
+        metadata: makeMetadata(startMs),
+    });
 });
 
 export default router;

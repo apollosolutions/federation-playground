@@ -1,0 +1,828 @@
+openapi: "3.1.0"
+info:
+  title: Federation Playground API
+  version: "1.0"
+  description: |
+    REST API for the Apollo Federation Composition Playground.
+
+    Designed for both human-driven UI usage and AI agent automation.
+    Agents investigating federation issues (e.g., composition errors, odd query plan
+    behaviors) can use these endpoints to reproduce and iterate on customer schemas
+    without running a full federation stack.
+
+    ## Agent workflow
+    1. `POST /api/import` — load a customer export JSON from a support ticket
+    2. `POST /api/compose` or `POST /api/compose-and-plan` — check composition
+    3. Modify schemas, re-compose, compare results
+    4. Report findings back to the support ticket or orchestrating agent
+
+    ## OpenAPI spec
+    - YAML: `GET /api/openapi.yaml`
+    - JSON: `GET /api/openapi.json`
+
+servers:
+  - url: /
+    description: Same-origin (dev or production)
+
+x-tagGroups:
+  - name: REST API
+    tags: [Composition, QueryPlan, Utility]
+  - name: MCP Server
+    tags: [MCP]
+
+tags:
+  - name: Composition
+    description: Schema composition endpoints
+  - name: QueryPlan
+    description: Query planning endpoints
+  - name: Utility
+    description: Utility and metadata endpoints
+  - name: MCP
+    description: |
+      The playground exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server
+      so AI agents can use federation tooling directly without writing HTTP client code.
+
+      ## Transports
+
+      **stdio** — run as a local subprocess for agents like Cursor and Claude Desktop:
+      ```bash
+      # after npm run build
+      npm run mcp:stdio -w backend
+
+      # dev mode (no build needed)
+      npm run mcp:stdio:dev -w backend
+      ```
+
+      **HTTP / Streamable HTTP** — connect to the running server at `POST /mcp` or `GET /mcp`
+      (MCP Streamable HTTP transport, MCP SDK 1.x).
+
+      ## Cursor configuration
+      ```json
+      {
+        "mcpServers": {
+          "federation-playground": {
+            "command": "node",
+            "args": ["backend/dist/mcp/stdio.js"],
+            "cwd": "/path/to/federation-playground"
+          }
+        }
+      }
+      ```
+
+      ## Claude Desktop configuration
+      ```json
+      {
+        "mcpServers": {
+          "federation-playground": {
+            "command": "node",
+            "args": ["/path/to/federation-playground/backend/dist/mcp/stdio.js"]
+          }
+        }
+      }
+      ```
+
+      ## Typical agent workflow
+      ```
+      Agent reads support ticket with attached export JSON
+        -> import_and_analyze  (load + compose + plan in one call)
+        -> inspect errors[].code + docsUrl for diagnosis
+        -> compose_and_plan    (iterate with modified schemas)
+        -> report findings back to ticket
+      ```
+
+paths:
+  /api/compose:
+    post:
+      operationId: compose
+      summary: Compose federated subgraph schemas
+      description: |
+        Runs Apollo Federation composition on the provided subgraph schemas.
+        Returns the composed supergraph SDL on success, or structured composition
+        errors with error codes and documentation links on failure.
+
+        Hints (non-error warnings) are also included in the success response.
+      x-agent-hint: "Use this to check whether a set of subgraph schemas compose
+        correctly. Check errors[].code against the federation error reference for
+        diagnosis. After a successful compose, call /api/query-plan or use
+        /api/compose-and-plan to do both in one call."
+      tags: [Composition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComposeRequest"
+            example:
+              federationVersion: "=2.13.3"
+              subgraphs:
+                - name: products
+                  url: "http://products:4000/graphql"
+                  schema: |
+                    extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                    type Query { products: [Product!]! }
+                    type Product @key(fields: "id") { id: ID! name: String! }
+                - name: reviews
+                  url: "http://reviews:4001/graphql"
+                  schema: |
+                    extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+                    type Query { reviews: [Review!]! }
+                    type Review { id: ID! product: Product! }
+                    type Product @key(fields: "id") { id: ID! reviews: [Review!]! }
+      responses:
+        "200":
+          description: Composition succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComposeSuccess"
+        "422":
+          description: Composition failed (schema errors)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComposeFailure"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Failed to load the requested composition version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/compose-and-plan:
+    post:
+      operationId: composeAndPlan
+      summary: Compose subgraphs and generate a query plan in one call
+      description: |
+        Composes subgraph schemas, then immediately generates a query plan for
+        the provided operation against the composed supergraph. If composition
+        fails, queryPlanResult is null. If no operation is provided, only
+        composition runs and queryPlanResult is null.
+
+        This is the most efficient endpoint for agents investigating both
+        composition and query planning behavior in a single round-trip.
+      x-agent-hint: "Preferred endpoint for agent investigations. Composes and plans
+        in one call. Check composeResult first; if success is false, fix schemas
+        before worrying about the query plan. composeResult.errors[].code links
+        to the federation error reference."
+      tags: [Composition, QueryPlan]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComposeAndPlanRequest"
+      responses:
+        "200":
+          description: Composition succeeded (query plan may still have errors)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComposeAndPlanResult"
+        "422":
+          description: Composition failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComposeAndPlanResult"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/query-plan:
+    post:
+      operationId: queryPlan
+      summary: Generate a query plan for an operation
+      description: |
+        Generates a query plan for a GraphQL operation against an already-composed
+        supergraph SDL. You must provide the supergraphSdl from a prior successful
+        compose call. Use /api/compose-and-plan to do both in one call.
+      x-agent-hint: "Requires supergraphSdl from a prior /api/compose call. If you
+        don't have the supergraphSdl yet, use /api/compose-and-plan instead."
+      tags: [QueryPlan]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryPlanRequest"
+      responses:
+        "200":
+          description: Query plan generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryPlanSuccess"
+        "422":
+          description: Query plan failed (invalid operation or schema)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryPlanFailure"
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/import:
+    post:
+      operationId: importExport
+      summary: Import a playground export JSON
+      description: |
+        Validates a Federation Playground export JSON (version 1.0 format, as
+        exported by the UI via the Export button). Returns the parsed subgraphs,
+        federation version, and operation.
+
+        Add ?compose=true to automatically compose the imported subgraphs and
+        include the composition result in the response.
+
+        This is the entry point for agent workflows that start from a customer
+        export attached to a support ticket.
+      x-agent-hint: "Start here when given a customer export JSON from a support
+        ticket. Use ?compose=true to immediately check composition. If composition
+        fails, the errors include error codes and documentation links. You can
+        then modify the subgraphs and POST to /api/compose or /api/compose-and-plan
+        to iterate."
+      tags: [Utility]
+      parameters:
+        - name: compose
+          in: query
+          description: If true, automatically compose the imported subgraphs
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaygroundExportV1"
+      responses:
+        "200":
+          description: Import successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportSuccess"
+        "422":
+          description: Import succeeded but composition failed (only with ?compose=true)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportSuccess"
+        "400":
+          description: Invalid export format or composition version error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportFailure"
+
+  /api/federation-versions:
+    get:
+      operationId: listFederationVersions
+      summary: List available federation composition versions
+      description: |
+        Returns all available @apollo/composition versions from npm.
+        Results are cached for 1 hour. Use to check if a specific version
+        exists before requesting composition with that version.
+      x-agent-hint: "Use to enumerate available composition versions. Pass an exact
+        version as '=X.Y.Z' in compose requests to pin to a specific version."
+      tags: [Utility]
+      responses:
+        "200":
+          description: List of available versions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: string
+                    description: Semver version strings, e.g. ["2.13.3", "2.12.0", ...]
+        "502":
+          description: Failed to fetch from npm registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      tags: [Utility]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+
+  /mcp/tools:
+    get:
+      operationId: listMcpTools
+      summary: List MCP tools advertised by this server
+      description: |
+        Returns the static manifest of MCP tools exposed by this playground instance.
+        Same tools are available via stdio MCP and via HTTP MCP; this endpoint is convenient
+        for discovery without opening a JSON-RPC session.
+      tags: [MCP]
+      responses:
+        "200":
+          description: Tool manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpToolsListResponse"
+
+  /mcp:
+    post:
+      operationId: mcpStreamableHttp
+      summary: MCP Streamable HTTP transport (JSON-RPC 2.0)
+      description: |
+        Primary HTTP entry point for Model Context Protocol over [Streamable HTTP](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http)
+        using JSON-RPC 2.0 envelopes. Sends MCP method calls (initialize, tools/list,
+        tools/call, etc.) in the POST body and receives MCP protocol payloads in the response,
+        depending on SDK and client negotiation.
+
+        Each request uses a fresh stateless transport session unless your client preserves
+        connection semantics per MCP documentation. Prefer **stdio** (`npm run mcp:stdio -w backend`)
+        for local agents such as Cursor and Claude Desktop — lower latency and no HTTP wiring.
+      x-agent-hint: |
+        HTTP MCP is intended for integrations that cannot run a subprocess. For local automation,
+        Cursor, and similar hosts, configure stdio mode instead (see MCP tag docs). POST JSON-RPC 2.0
+        bodies to this path; inspect OpenAPI schemas for request envelope shape only — actual MCP
+        method names and result shapes come from JSON-RPC exchanges (tools/list, tools/call).
+      tags: [MCP]
+      requestBody:
+        required: true
+        description: |
+          Single JSON-RPC 2.0 request object, or an array batch of requests, depending on the MCP client.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JsonRpc2RequestEnvelope"
+      responses:
+        "200":
+          description: JSON-RPC response or streaming MCP payloads per Transport HTTP negotiation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/JsonRpc2Response"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/JsonRpc2Response"
+                    description: When the client submits a batched JSON-RPC array
+                description: MCP protocol replies as JSON-RPC 2.0 result or error objects
+            text/event-stream:
+              schema:
+                type: string
+                description: Optional streaming response chunks per MCP Streamable HTTP
+        "500":
+          description: Internal handler error returned as JSON-RPC error when headers not yet sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JsonRpc2ErrorEnvelope"
+
+components:
+  schemas:
+    SubgraphInput:
+      type: object
+      required: [name, schema]
+      properties:
+        name:
+          type: string
+          description: Subgraph name (must be unique within the request)
+        url:
+          type: string
+          description: Subgraph routing URL (defaults to http://<name>/graphql if omitted)
+        schema:
+          type: string
+          description: Full GraphQL SDL for this subgraph including federation @link directive
+
+    SerializedGraphQLError:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+          description: |
+            Federation error code from @apollo/composition, e.g. FIELD_TYPE_MISMATCH.
+            Present only when the error has a known code.
+        docsUrl:
+          type: string
+          format: uri
+          description: Link to the federation error reference for this code
+        locations:
+          type: array
+          items:
+            type: object
+            required: [line, column]
+            properties:
+              line:
+                type: integer
+              column:
+                type: integer
+        path:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        extensions:
+          type: object
+          additionalProperties: true
+
+    ComposeHint:
+      type: object
+      required: [message, code, docsUrl]
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+        docsUrl:
+          type: string
+          format: uri
+        level:
+          type: string
+        coordinate:
+          type: string
+
+    ResponseMetadata:
+      type: object
+      required: [timestamp, durationMs, compositionVersion]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when the response was generated
+        durationMs:
+          type: integer
+          description: Server-side processing time in milliseconds
+        compositionVersion:
+          type: string
+          description: The @apollo/composition version used for this request
+
+    ComposeRequest:
+      type: object
+      required: [subgraphs]
+      properties:
+        federationVersion:
+          type: string
+          description: |
+            Federation version specifier. Use "2" for the latest stable 2.x,
+            or "=X.Y.Z" to pin to an exact version (e.g. "=2.13.3").
+        subgraphs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubgraphInput"
+          minItems: 1
+
+    ComposeSuccess:
+      type: object
+      required: [success, supergraphSdl, hints, federationVersion, metadata]
+      properties:
+        success:
+          type: boolean
+          const: true
+        supergraphSdl:
+          type: string
+          description: The composed supergraph SDL. Pass this to /api/query-plan.
+        hints:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComposeHint"
+        federationVersion:
+          type: string
+          description: The resolved exact version used for composition
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+
+    ComposeFailure:
+      type: object
+      required: [success, errors]
+      properties:
+        success:
+          type: boolean
+          const: false
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SerializedGraphQLError"
+        federationVersion:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+
+    ComposeAndPlanRequest:
+      type: object
+      required: [subgraphs]
+      properties:
+        federationVersion:
+          type: string
+        subgraphs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubgraphInput"
+          minItems: 1
+        operation:
+          type: string
+          description: GraphQL operation document. If omitted, only composition runs.
+        operationName:
+          type: string
+          nullable: true
+
+    ComposeAndPlanResult:
+      type: object
+      required: [federationVersion, composeResult, queryPlanResult, metadata]
+      properties:
+        federationVersion:
+          type: string
+        composeResult:
+          oneOf:
+            - $ref: "#/components/schemas/ComposeSuccess"
+            - $ref: "#/components/schemas/ComposeFailure"
+        queryPlanResult:
+          nullable: true
+          oneOf:
+            - $ref: "#/components/schemas/QueryPlanSuccess"
+            - $ref: "#/components/schemas/QueryPlanFailure"
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+
+    QueryPlanRequest:
+      type: object
+      required: [supergraphSdl, operation]
+      properties:
+        supergraphSdl:
+          type: string
+          description: Composed supergraph SDL from a prior /api/compose success response
+        operation:
+          type: string
+          description: GraphQL operation document to plan
+        operationName:
+          type: string
+          nullable: true
+
+    QueryPlanSuccess:
+      type: object
+      required: [success, queryPlan, formattedPlan, metadata]
+      properties:
+        success:
+          type: boolean
+          const: true
+        queryPlan:
+          type: object
+          description: Raw query plan object from @apollo/query-planner
+          additionalProperties: true
+        formattedPlan:
+          type: string
+          description: Human-readable formatted query plan string
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+
+    QueryPlanFailure:
+      type: object
+      required: [success, errors, metadata]
+      properties:
+        success:
+          type: boolean
+          const: false
+        errors:
+          type: array
+          items:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+              extensions:
+                type: object
+                additionalProperties: true
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+
+    PlaygroundExportV1:
+      type: object
+      required: [version, subgraphs, federationVersion, operation]
+      description: |
+        Export format produced by the Federation Playground UI (Export button).
+        Submit this to /api/import to reproduce an issue from a support ticket.
+      properties:
+        version:
+          type: string
+          const: "1.0"
+        exportNote:
+          type: string
+        exportedAt:
+          type: string
+          format: date-time
+        federationVersion:
+          type: string
+        subgraphs:
+          type: array
+          items:
+            type: object
+            required: [name, schema]
+            properties:
+              name:
+                type: string
+              url:
+                type: string
+              schema:
+                type: string
+          minItems: 1
+        operation:
+          type: string
+
+    ImportSuccess:
+      type: object
+      required: [valid, federationVersion, subgraphs, operation]
+      properties:
+        valid:
+          type: boolean
+          const: true
+        federationVersion:
+          type: string
+        subgraphs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubgraphInput"
+        operation:
+          type: string
+        composeResult:
+          description: Present only when ?compose=true was passed
+          oneOf:
+            - $ref: "#/components/schemas/ComposeSuccess"
+            - $ref: "#/components/schemas/ComposeFailure"
+
+    ImportFailure:
+      type: object
+      required: [valid, errors]
+      properties:
+        valid:
+          type: boolean
+          const: false
+        errors:
+          type: array
+          items:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+
+    ErrorResponse:
+      type: object
+      required: [success, errors]
+      properties:
+        success:
+          type: boolean
+          const: false
+        errors:
+          type: array
+          items:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+
+    McpToolsListResponse:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          description: MCP tool descriptors with JSON Schema inputs
+          items:
+            $ref: "#/components/schemas/McpTool"
+
+    McpTool:
+      type: object
+      description: MCP tool declaration (aliases map to MCP tools/list entries)
+      required: [name, title, description, inputSchema]
+      properties:
+        name:
+          type: string
+          description: Machine-readable tool identifier used in tools/call
+        title:
+          type: string
+          description: Human-readable short label for the tool
+        description:
+          type: string
+          description: What the tool does and when to use it
+        inputSchema:
+          type: object
+          description: JSON Schema object describing arguments passed to tools/call
+          additionalProperties: true
+
+    JsonRpc2RequestEnvelope:
+      oneOf:
+        - $ref: "#/components/schemas/JsonRpc2Request"
+        - type: array
+          description: Batch of JSON-RPC 2.0 requests
+          items:
+            $ref: "#/components/schemas/JsonRpc2Request"
+
+    JsonRpc2Request:
+      type: object
+      description: Single JSON-RPC 2.0 request (non-notification sends id; notifications omit id)
+      required: [jsonrpc, method]
+      properties:
+        jsonrpc:
+          type: string
+          const: "2.0"
+        method:
+          type: string
+          description: MCP method name or JSON-RPC subsystem method
+        params:
+          description: MCP-specific structured parameters object or positional array
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+            - type: "null"
+        id:
+          description: Omit for notifications only
+          nullable: true
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"
+
+    JsonRpc2Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: JSON-RPC error code (e.g. -32603 internal error from this server)
+        message:
+          type: string
+        data:
+          description: Optional structured error payload
+          type: object
+          additionalProperties: true
+
+    JsonRpc2Response:
+      type: object
+      required: [jsonrpc, id]
+      description: Exactly one of result or error is present per JSON-RPC 2.0
+      properties:
+        jsonrpc:
+          type: string
+          const: "2.0"
+        id:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"
+        result:
+          description: Successful MCP RPC payload from the MCP SDK transport
+          type: object
+          additionalProperties: true
+        error:
+          $ref: "#/components/schemas/JsonRpc2Error"
+
+    JsonRpc2ErrorEnvelope:
+      type: object
+      description: Fallback error shape when MCP transport fails before streaming starts
+      required: [jsonrpc, error]
+      properties:
+        jsonrpc:
+          type: string
+          const: "2.0"
+        error:
+          $ref: "#/components/schemas/JsonRpc2Error"
+        id:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"

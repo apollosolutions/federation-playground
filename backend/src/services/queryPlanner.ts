@@ -2,19 +2,9 @@ import { Supergraph, operationFromDocument } from "@apollo/federation-internals"
 import { QueryPlanner, prettyFormatQueryPlan } from "@apollo/query-planner";
 import { GraphQLError } from "graphql";
 import { parse } from "graphql";
+import type { QueryPlanFailure, QueryPlanResult, QueryPlanSuccess } from "../types.js";
 
-export type QueryPlanSuccess = {
-    success: true;
-    queryPlan: unknown;
-    formattedPlan: string;
-};
-
-export type QueryPlanFailure = {
-    success: false;
-    errors: Array<{ message: string; extensions?: Record<string, unknown> }>;
-};
-
-export type QueryPlanResult = QueryPlanSuccess | QueryPlanFailure;
+export type { QueryPlanResult, QueryPlanSuccess, QueryPlanFailure };
 
 export function generateQueryPlan(
     supergraphSdl: string,
@@ -38,7 +28,7 @@ export function generateQueryPlan(
             success: true,
             queryPlan: plan as unknown,
             formattedPlan: formatted,
-        };
+        } satisfies QueryPlanSuccess;
     } catch (err) {
         if (err instanceof GraphQLError) {
             return {
@@ -49,12 +39,12 @@ export function generateQueryPlan(
                         extensions: err.extensions as Record<string, unknown> | undefined,
                     },
                 ],
-            };
+            } satisfies QueryPlanFailure;
         }
         const message = err instanceof Error ? err.message : String(err);
         return {
             success: false,
             errors: [{ message }],
-        };
+        } satisfies QueryPlanFailure;
     }
 }

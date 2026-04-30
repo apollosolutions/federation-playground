@@ -1,3 +1,4 @@
+import { Plus, X } from "lucide-react";
 import type { SubgraphState } from "@/types";
 import { MonacoEditor } from "./MonacoEditor";
 
@@ -37,44 +38,46 @@ export function SubgraphPanel({
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-surface-border bg-surface">
-            <div className="flex shrink-0 items-center gap-1 border-b border-surface-border px-2 py-1">
-                <span className="px-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Subgraphs
-                </span>
-                <div className="flex flex-1 flex-wrap gap-1 overflow-x-auto">
-                    {subgraphs.map((s) => (
-                        <button
+            {/* IDE-style tab bar */}
+            <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-surface-border bg-surface-raised">
+                {subgraphs.map((s) => {
+                    const isActive = s.id === active?.id;
+                    return (
+                        <div
                             key={s.id}
-                            type="button"
-                            onClick={() => onSelect(s.id)}
-                            className={`rounded px-2 py-0.5 text-xs ${
-                                s.id === active?.id
-                                    ? "bg-blue-900/50 text-blue-200"
-                                    : "text-gray-400 hover:bg-surface-raised"
+                            className={`group relative flex shrink-0 items-center gap-2 border-r border-surface-border px-4 py-2 text-xs cursor-pointer select-none ${
+                                isActive
+                                    ? "bg-surface text-gray-100 after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-blue-500"
+                                    : "text-gray-500 hover:bg-surface/60 hover:text-gray-300"
                             }`}
+                            onClick={() => onSelect(s.id)}
                         >
-                            {s.name}
-                        </button>
-                    ))}
-                </div>
+                            <span className="font-mono">{s.name || "untitled"}</span>
+                            {subgraphs.length > 1 && (
+                                <button
+                                    type="button"
+                                    title={`Remove ${s.name}`}
+                                    onClick={(e) => { e.stopPropagation(); onRemove(s.id); }}
+                                    className={`flex items-center justify-center rounded p-0.5 transition-colors ${
+                                        isActive
+                                            ? "text-gray-500 hover:bg-surface-raised hover:text-red-400"
+                                            : "text-transparent group-hover:text-gray-600 hover:!text-red-400"
+                                    }`}
+                                >
+                                    <X size={11} />
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
                 <button
                     type="button"
-                    className="rounded px-2 py-0.5 text-xs text-green-400 hover:bg-surface-raised"
                     onClick={onAdd}
                     title="Add subgraph"
+                    className="flex shrink-0 items-center px-3 text-gray-500 hover:bg-surface/60 hover:text-gray-200"
                 >
-                    +
+                    <Plus size={14} />
                 </button>
-                {active && subgraphs.length > 1 && (
-                    <button
-                        type="button"
-                        className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-surface-raised"
-                        onClick={() => onRemove(active.id)}
-                        title="Remove active subgraph"
-                    >
-                        −
-                    </button>
-                )}
             </div>
             {active && (
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
