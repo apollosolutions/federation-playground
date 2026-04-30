@@ -1,10 +1,11 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { composeSubgraphs } from "../services/composition.js";
 import { ensureComposition, resolveVersion } from "../services/compositionManager.js";
 import { generateQueryPlan } from "../services/queryPlanner.js";
 import { fetchCompositionVersions } from "../routes/federationVersions.js";
 import { makeMetadata, COMPOSITION_VERSION } from "../services/metadata.js";
+import { getAllPatterns, getPattern } from "../knowledge/index.js";
 import type { PlaygroundExportV1, SubgraphInput } from "../types.js";
 
 const SubgraphSchema = z.object({
@@ -16,7 +17,7 @@ const SubgraphSchema = z.object({
 const FederationVersionSchema = z
     .string()
     .optional()
-    .describe('Version specifier: "2" for latest stable, "=X.Y.Z" to pin exact (e.g. "=2.13.3")');
+    .describe('Version specifier: "2" for latest stable, "2.13.3" or "=2.13.3" for exact. Bare semver works.');
 
 async function resolveCompositionVersion(federationVersion?: string) {
     const versions = await fetchCompositionVersions();
@@ -34,9 +35,17 @@ Use these tools to analyze federated GraphQL schemas, reproduce composition erro
 Typical workflow:
 1. import_and_analyze — load a customer export JSON from a support ticket
 2. compose_and_plan — check both composition and query planning in one call
-3. Modify schemas and re-compose to iterate on fixes
+3. Inspect errors[].code and agentDiagnostics[].pattern for diagnosis
+4. Read resource federation-pattern://{pattern} for full fix guidance and examples
+5. Modify schemas and re-compose to iterate
 
-Error codes in composition errors map to:
+Tool-specific things to know:
+- You do NOT need to add a Query type to reproduction schemas — one is auto-injected if missing.
+- federationVersion accepts bare semver (e.g. "2.13.3"), "=2.13.3", or "2" for latest.
+- agentDiagnostics[] in error responses contains pattern IDs from the knowledge base.
+- Read federation-pattern://list to browse all known federation error patterns.
+
+Error codes reference:
 https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/errors`,
         },
     );
@@ -48,7 +57,8 @@ https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/refer
             title: "Compose federated subgraph schemas",
             description:
                 "Compose federated subgraph schemas into a supergraph. Returns supergraphSdl on success, " +
-                "or errors with federation error codes and documentation links on failure. " +
+                "or errors with federation error codes, documentation links, and agentDiagnostics on failure. " +
+                "A dummy Query type is auto-injected if no subgraph defines one. " +
                 "Error codes: https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/errors",
             inputSchema: {
                 federationVersion: FederationVersionSchema,
@@ -110,7 +120,9 @@ https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/refer
             description:
                 "Compose federated subgraph schemas and generate a query plan in one step. " +
                 "Most common tool for investigating federation issues. " +
-                "If composition fails, queryPlanResult is null. If no operation is provided, only composition runs.",
+                "If composition fails, queryPlanResult is null and agentDiagnostics[] provides pattern-matched guidance. " +
+                "If no operation is provided, only composition runs. " +
+                "No Query type needed in schemas — auto-injected if missing.",
             inputSchema: {
                 federationVersion: FederationVersionSchema,
                 subgraphs: z.array(SubgraphSchema).min(1),
@@ -222,6 +234,92 @@ https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/refer
                 { valid: true, federationVersion: exactVersion, subgraphs, operation, composeResult, queryPlanResult, metadata },
                 ok,
             );
+        },
+    );
+
+    // Resource: federation-pattern://list — all pattern summaries
+    server.resource(
+        "federation-patterns-list",
+        "federation-pattern://list",
+        {
+            description:
+                "List of all known federation error patterns with IDs, summaries, and suggestions. " +
+                "Read individual patterns at federation-pattern://{id} for full markdown details.",
+            mimeType: "application/json",
+        },
+        (_uri) => {
+            const patterns = getAllPatterns().map(({ id, codes, summary, suggestion, affectedVersions, docsUrl }) => ({
+                id,
+                codes,
+                summary,
+                suggestion,
+                ...(affectedVersions ? { affectedVersions } : {}),
+                ...(docsUrl ? { docsUrl } : {}),
+            }));
+            return {
+                contents: [
+                    {
+                        uri: "federation-pattern://list",
+                        mimeType: "application/json",
+                        text: JSON.stringify({ patterns }, null, 2),
+                    },
+                ],
+            };
+        },
+    );
+
+    // Resource: federation-pattern://{id} — full pattern with markdown body
+    server.resource(
+        "federation-pattern",
+        new ResourceTemplate("federation-pattern://{id}", {
+            list: () => ({
+                resources: getAllPatterns().map((p) => ({
+                    uri: `federation-pattern://${p.id}`,
+                    name: p.id,
+                    description: p.summary,
+                    mimeType: "text/markdown",
+                })),
+            }),
+        }),
+        {
+            description:
+                "Full details for a known federation error pattern, including markdown body with examples and fix guidance. " +
+                "Use federation-pattern://list to see all available pattern IDs.",
+            mimeType: "text/markdown",
+        },
+        (_uri, { id }) => {
+            const pattern = getPattern(String(id).toUpperCase());
+            if (!pattern) {
+                return {
+                    contents: [
+                        {
+                            uri: _uri.href,
+                            mimeType: "application/json",
+                            text: JSON.stringify({ error: `Pattern "${id}" not found` }),
+                        },
+                    ],
+                };
+            }
+            const header = [
+                `# ${pattern.id}`,
+                "",
+                `**Summary:** ${pattern.summary}`,
+                "",
+                `**Suggestion:** ${pattern.suggestion}`,
+                ...(pattern.docsUrl ? [`\n**Docs:** ${pattern.docsUrl}`] : []),
+                "",
+                "---",
+                "",
+            ].join("\n");
+            return {
+                contents: [
+                    {
+                        uri: _uri.href,
+                        mimeType: "text/markdown",
+                        text: header + pattern.body,
+                    },
+                ],
+            };
         },
     );
 

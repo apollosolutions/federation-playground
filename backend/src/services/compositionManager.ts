@@ -38,8 +38,9 @@ const installing = new Map<string, Promise<void>>();
 
 /**
  * Resolves a UI federation version string to an exact semver version.
- *   "=2.9.0" -> "2.9.0"
- *   "2"      -> latest stable 2.x from availableVersions
+ *   "=2.9.0"  -> "2.9.0"   (pinned exact)
+ *   "2.9.0"   -> "2.9.0"   (bare semver, treated as pinned)
+ *   "2"       -> latest stable 2.x from availableVersions
  */
 export function resolveVersion(
     input: string,
@@ -67,8 +68,17 @@ export function resolveVersion(
         return stable[stable.length - 1];
     }
 
+    if (/^\d+\.\d+\.\d+/.test(v)) {
+        const base = v.replace(/-.*$/, "").replace(/^(\d+\.\d+\.\d+).*/, "$1");
+        if (availableVersions.includes(v)) return v;
+        if (v !== base && availableVersions.includes(base)) return base;
+        throw new Error(
+            `@apollo/composition@${v} does not exist on npm. Use "=X.Y.Z" for exact or "2" for latest.`,
+        );
+    }
+
     throw new Error(
-        `Invalid federation version "${v}". Use "2" for latest or "=X.Y.Z" for an exact version.`,
+        `Invalid federation version "${v}". Use "2" for latest, "X.Y.Z", or "=X.Y.Z" for an exact version.`,
     );
 }
 

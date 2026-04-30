@@ -71,11 +71,43 @@ Open [http://localhost:3000](http://localhost:3000).
 | `POST` | `/api/compose-and-plan` | Body: `{ federationVersion?, subgraphs, operation?, operationName? }` — compose + plan in one call |
 | `POST` | `/api/import` | Body: export JSON (v1.0); add `?compose=true` to auto-compose |
 | `GET` | `/api/federation-versions` | Lists available `@apollo/composition` versions from npm |
+| `GET` | `/api/federation-patterns` | Lists known federation error patterns from the knowledge base |
+| `GET` | `/api/federation-patterns/:id` | Full detail for a pattern (markdown body, examples, fix guidance) |
 | `GET` | `/api/openapi.json` | OpenAPI 3.1 spec (JSON) |
 | `GET` | `/api/openapi.yaml` | OpenAPI 3.1 spec (YAML) |
 | `GET` | `/health` | Liveness |
 
-All responses include a `metadata` field: `{ timestamp, durationMs, compositionVersion }`. Composition errors include a `code` field (e.g. `FIELD_TYPE_MISMATCH`) and a `docsUrl` linking to the [federation error reference](https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/errors).
+All responses include a `metadata` field: `{ timestamp, durationMs, compositionVersion }`. Composition errors include a `code` field (e.g. `FIELD_TYPE_MISMATCH`) and a `docsUrl` linking to the [federation error reference](https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/errors). When errors match a known pattern, the response also includes `agentDiagnostics[]` — see the [Federation error patterns](#federation-error-patterns) section below.
+
+## Federation error patterns
+
+Known federation composition and query planning error patterns are documented in `backend/src/knowledge/patterns/`. Each pattern is a markdown file with YAML frontmatter (`id`, `codes`, `summary`, `suggestion`) and a free-form body for root cause analysis, reproduction schemas, and version notes.
+
+**To add a new pattern:** drop a `.md` file in `backend/src/knowledge/patterns/` with the required frontmatter. No code changes needed — the server loads patterns at startup automatically.
+
+Patterns are accessible at:
+- `GET /api/federation-patterns` — list all (id, summary, suggestion)
+- `GET /api/federation-patterns/:id` — full detail with markdown body
+- MCP resource `federation-pattern://list` — all summaries
+- MCP resource `federation-pattern://{id}` — full detail
+
+When composition fails and errors match a known pattern, the response includes `agentDiagnostics[]`:
+
+```json
+{
+  "success": false,
+  "errors": [...],
+  "agentDiagnostics": [
+    {
+      "pattern": "EXTERNAL_KEY_WITH_REQUIRES",
+      "summary": "A subgraph marks its @key field as @external AND uses @requires...",
+      "suggestion": "Remove @external from the @key field..."
+    }
+  ]
+}
+```
+
+Fetch `GET /api/federation-patterns/{pattern}` for the full entry with examples.
 
 ## Agent API
 
@@ -85,9 +117,10 @@ The playground is designed to be used programmatically by AI agents investigatin
 
 ```
 Agent reads support ticket with attached export JSON
-  -> POST /api/import?compose=true   (load + compose in one call)
-  -> Inspect composeResult.errors[].code and docsUrl for diagnosis
-  -> POST /api/compose-and-plan      (iterate with modified schemas + operation)
+  -> POST /api/import?compose=true          (load + compose in one call)
+  -> Inspect errors[].code and agentDiagnostics[].pattern for diagnosis
+  -> GET /api/federation-patterns/{pattern} (full fix guidance + examples)
+  -> POST /api/compose-and-plan             (iterate with modified schemas + operation)
   -> Compare query plans across schema variations
   -> Report findings back to ticket
 ```
@@ -122,11 +155,18 @@ The playground exposes an [MCP (Model Context Protocol)](https://modelcontextpro
 
 | Tool | Description |
 |------|-------------|
-| `compose` | Compose subgraph schemas. Returns supergraphSdl or errors with error codes + docs links. |
+| `compose` | Compose subgraph schemas. Returns supergraphSdl or errors with error codes + `agentDiagnostics`. |
 | `query_plan` | Generate a query plan from supergraphSdl + operation. |
 | `compose_and_plan` | Compose + plan in one step. Most common tool for investigations. |
 | `import_and_analyze` | Import a Playground export JSON string, compose, and plan automatically. |
 | `list_federation_versions` | List available `@apollo/composition` versions from npm. |
+
+### Resources
+
+| Resource URI | Description |
+|-------------|-------------|
+| `federation-pattern://list` | All known federation error pattern summaries (JSON) |
+| `federation-pattern://{id}` | Full pattern detail with markdown body, examples, and fix guidance |
 
 ### stdio mode (local agents — Cursor, Claude Desktop)
 

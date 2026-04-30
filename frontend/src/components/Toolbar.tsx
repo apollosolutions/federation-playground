@@ -1,6 +1,4 @@
 import { BookOpen, Download, GitMerge, Network, Upload } from "lucide-react";
-import { FEDERATION_VERSION_SUGGESTIONS } from "@/utils/defaultSchemas";
-
 export type ToolbarProps = {
     federationVersion: string;
     federationVersionError: string | null;
@@ -42,7 +40,6 @@ export function Toolbar({
                             }`}
                             value={federationVersion}
                             onChange={(e) => onFederationVersionChange(e.target.value)}
-                            list="federation-version-suggestions"
                             placeholder="2.13.3 or 2"
                             title="Semver version (e.g. 2.13.3) or '2' for latest stable 2.x. Stored in exports."
                             spellCheck={false}
@@ -54,11 +51,7 @@ export function Toolbar({
                             </span>
                         )}
                     </span>
-                    <datalist id="federation-version-suggestions">
-                        {FEDERATION_VERSION_SUGGESTIONS.map((v) => (
-                            <option key={v} value={v} />
-                        ))}
-                    </datalist>
+
                 </label>
                 <button
                     type="button"

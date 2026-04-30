@@ -29,9 +29,16 @@ export type ComposeSuccess = {
     hints: ComposeHint[];
 };
 
+export type AgentDiagnostic = {
+    pattern: string;
+    summary: string;
+    suggestion: string;
+};
+
 export type ComposeFailure = {
     success: false;
     errors: SerializedGraphQLError[];
+    agentDiagnostics?: AgentDiagnostic[];
 };
 
 export type ComposeResult = ComposeSuccess | ComposeFailure;

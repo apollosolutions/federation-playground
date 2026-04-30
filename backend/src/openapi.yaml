@@ -13,8 +13,24 @@ info:
     ## Agent workflow
     1. `POST /api/import` — load a customer export JSON from a support ticket
     2. `POST /api/compose` or `POST /api/compose-and-plan` — check composition
-    3. Modify schemas, re-compose, compare results
-    4. Report findings back to the support ticket or orchestrating agent
+    3. Inspect `errors[].code` and `agentDiagnostics[]` for pattern-matched guidance
+    4. Modify schemas, re-compose, compare results
+    5. Report findings back to the support ticket or orchestrating agent
+
+    ## Common pitfalls for agents (tool-specific)
+    - **Federation version format:** Use `"2"` for latest stable, `"2.13.3"` or `"=2.13.3"` for exact.
+      Bare semver is accepted — you do NOT need the `=` prefix.
+    - **Query type auto-injection:** The server auto-injects a dummy `type Query { _playground_health_check: String }`
+      if no subgraph defines one. You don't need to add Query types to reproduction schemas.
+    - **agentDiagnostics in error responses:** When composition fails with a recognized error pattern,
+      the response includes `agentDiagnostics[]` with pattern-matched summaries and suggestions.
+      Each entry includes a `pattern` ID. Fetch `GET /api/federation-patterns/{pattern}` for full
+      details, examples, and fix guidance on that pattern.
+
+    ## Federation error patterns knowledge base
+    Known federation error patterns (e.g. `@external` on `@key` with `@requires`,
+    SATISFIABILITY_ERROR explosion) are documented at `GET /api/federation-patterns`.
+    These patterns are maintained independently and can be fetched on demand.
 
     ## OpenAPI spec
     - YAML: `GET /api/openapi.yaml`
@@ -84,11 +100,17 @@ tags:
       ## Typical agent workflow
       ```
       Agent reads support ticket with attached export JSON
-        -> import_and_analyze  (load + compose + plan in one call)
-        -> inspect errors[].code + docsUrl for diagnosis
-        -> compose_and_plan    (iterate with modified schemas)
+        -> import_and_analyze       (load + compose + plan in one call)
+        -> inspect errors[].code + agentDiagnostics[].pattern for diagnosis
+        -> read federation-pattern://{pattern} resource for full fix guidance
+        -> compose_and_plan         (iterate with modified schemas)
         -> report findings back to ticket
       ```
+
+      ## MCP Resources
+      The server also exposes federation knowledge base entries as MCP resources:
+      - `federation-pattern://list` — all known pattern summaries (JSON)
+      - `federation-pattern://{id}` — full pattern detail with markdown body
 
 paths:
   /api/compose:
@@ -101,10 +123,12 @@ paths:
         errors with error codes and documentation links on failure.
 
         Hints (non-error warnings) are also included in the success response.
-      x-agent-hint: "Use this to check whether a set of subgraph schemas compose
-        correctly. Check errors[].code against the federation error reference for
-        diagnosis. After a successful compose, call /api/query-plan or use
-        /api/compose-and-plan to do both in one call."
+      x-agent-hint: "Use this to check whether a set of subgraph schemas compose correctly.
+        Check errors[].code and agentDiagnostics[] for pattern-matched guidance.
+        Fetch GET /api/federation-patterns/{agentDiagnostics[].pattern} for full fix details.
+        You do NOT need to add a Query type — it is auto-injected if missing.
+        After a successful compose, use /api/compose-and-plan to compose + plan in one call.
+        Bare semver like '2.13.3' works for federationVersion."
       tags: [Composition]
       requestBody:
         required: true
@@ -286,6 +310,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportFailure"
+
+  /api/federation-patterns:
+    get:
+      operationId: listFederationPatterns
+      summary: List known federation error patterns
+      description: |
+        Returns all known federation composition and query planning error patterns
+        from the playground's knowledge base. Each pattern includes a machine-readable
+        `id`, the composition error `codes` it matches, a `summary`, and a `suggestion`.
+
+        Fetch a specific pattern by ID at `/api/federation-patterns/{id}` to get
+        the full markdown body with examples, fix guidance, and version notes.
+
+        New patterns are added as new markdown files — no API changes required.
+      x-agent-hint: "Call this when agentDiagnostics returns a pattern ID you want more detail on,
+        or to explore what common federation error patterns are known. Use /{id} to get the
+        full pattern with examples."
+      tags: [Utility]
+      responses:
+        "200":
+          description: List of known patterns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [patterns]
+                properties:
+                  patterns:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FederationPatternSummary"
+
+  /api/federation-patterns/{id}:
+    get:
+      operationId: getFederationPattern
+      summary: Get full detail for a known federation error pattern
+      description: |
+        Returns the full knowledge base entry for a federation error pattern,
+        including a markdown body with root cause explanation, minimal reproduction
+        schemas, fix guidance, and version notes.
+
+        Pattern IDs come from `agentDiagnostics[].pattern` in compose error responses,
+        or from `GET /api/federation-patterns`.
+      x-agent-hint: "Use this when agentDiagnostics includes a pattern ID — fetch the
+        full entry for detailed fix guidance and reproduction examples."
+      tags: [Utility]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pattern ID (case-insensitive), e.g. EXTERNAL_KEY_WITH_REQUIRES
+      responses:
+        "200":
+          description: Full pattern detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FederationPatternDetail"
+        "404":
+          description: Pattern not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
 
   /api/federation-versions:
     get:
@@ -494,8 +588,11 @@ components:
         federationVersion:
           type: string
           description: |
-            Federation version specifier. Use "2" for the latest stable 2.x,
-            or "=X.Y.Z" to pin to an exact version (e.g. "=2.13.3").
+            Federation version specifier. Accepted formats:
+            - `"2"` — latest stable 2.x release
+            - `"2.13.3"` — bare semver, pinned to exact version
+            - `"=2.13.3"` — explicit pin (equivalent to bare semver)
+            If omitted, defaults to `"2"` (latest stable).
         subgraphs:
           type: array
           items:
@@ -533,10 +630,73 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SerializedGraphQLError"
+        agentDiagnostics:
+          type: array
+          description: |
+            Pattern-matched diagnostics for common federation issues.
+            Present when errors match known patterns (e.g. SATISFIABILITY_ERROR
+            from @external on @key fields). Each entry has a pattern identifier,
+            a human-readable summary, and an actionable suggestion.
+          items:
+            $ref: "#/components/schemas/AgentDiagnostic"
         federationVersion:
           type: string
         metadata:
           $ref: "#/components/schemas/ResponseMetadata"
+
+    AgentDiagnostic:
+      type: object
+      required: [pattern, summary, suggestion]
+      properties:
+        pattern:
+          type: string
+          description: |
+            Machine-readable pattern ID from the federation knowledge base.
+            Fetch full details at GET /api/federation-patterns/{pattern}.
+        summary:
+          type: string
+          description: What was detected (short, from the knowledge base entry)
+        suggestion:
+          type: string
+          description: Actionable fix recommendation (short, from the knowledge base entry)
+
+    FederationPatternSummary:
+      type: object
+      required: [id, codes, summary, suggestion]
+      properties:
+        id:
+          type: string
+          description: Machine-readable pattern identifier
+        codes:
+          type: array
+          items:
+            type: string
+          description: Federation error codes this pattern matches (e.g. SATISFIABILITY_ERROR)
+        summary:
+          type: string
+        suggestion:
+          type: string
+        affectedVersions:
+          type: array
+          items:
+            type: string
+          description: Federation versions where this pattern has been observed
+        docsUrl:
+          type: string
+          format: uri
+
+    FederationPatternDetail:
+      allOf:
+        - $ref: "#/components/schemas/FederationPatternSummary"
+        - type: object
+          required: [body]
+          properties:
+            body:
+              type: string
+              description: Full markdown content with root cause, reproduction schemas, and fix guidance
+            matchErrorCount:
+              type: integer
+              description: Minimum error count threshold for this pattern to trigger (if applicable)
 
     ComposeAndPlanRequest:
       type: object
